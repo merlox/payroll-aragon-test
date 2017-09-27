@@ -86,7 +86,8 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
    event LogApproval(address from, uint256 value, address tokenContract, bytes extraData);
 
    modifier onlyEmployee() {
-      require(employees[msg.sender])
+      require(employees[msg.sender]);
+      _;
    }
 
    /// @notice Constructor used to set the proof of oraclize, relationate the
