@@ -28,11 +28,15 @@ contract PayrollInterface {
   function scapeHatch();
   // function addTokenFunds()? // Use approveAndCall or ERC223 tokenFallback
 
-  function getEmployeeCount() constant returns (uint256);
-  function getEmployee(uint256 employeeId) constant returns (address employee); // Return all important info too
+  function getEmployeeCount() constant returns(uint256);
+  function getEmployee(uint256 employeeId) constant returns(
+   address employee,
+   address[] allowedTokens,
+   uint256 yearlySalary
+  ); // Return all important info too
 
-  function calculatePayrollBurnrate() constant returns (uint256); // Monthly usd amount spent in salaries
-  function calculatePayrollRunway() constant returns (uint256); // Days until the contract can run out of funds
+  function calculatePayrollBurnrate() constant returns(uint256); // Monthly usd amount spent in salaries
+  function calculatePayrollRunway() constant returns(uint256); // Days until the contract can run out of funds
 
   /* EMPLOYEE ONLY */
   function determineAllocation(address[] tokens, uint256[] distribution); // only callable once every 6 months
@@ -58,35 +62,29 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
    }
 
    // To locate each employee with his ID => Employee data
-   mapping(uint256 => Employee) employees;
+   mapping(uint256 => Employee) public employees;
 
    // To be able to get the ID of an employee given his address and get the rest
    // of the data
-   mapping(address => uint256) employeesIds;
+   mapping(address => uint256) public employeesIds;
 
    // Address of the token => price in USD
-   mapping(address => uint256) tokensPrices;
+   mapping(address => uint256) public tokensPrices;
 
    // The symbol string of the token => address of the token
-   mapping(string => address) tokenSymbols;
+   mapping(string => address) public tokenSymbols;
 
    // To set the ID of each employee
-   uint256 employeeIdCounter = 0;
+   uint256 public employeeIdCounter = 0;
 
    // How much total USD is spent monthly in salaries
-   uint256 totalMonthlySalaries;
-
-   // Price per ANT token in USD
-   uint256 antPrice;
-
-   // Price per ETH in USD. There isn't a usdPrice uint because it's always 1
-   uint256 ethPrice;
+   uint256 public totalMonthlySalaries;
 
    // To notify users about approvals
    event LogApproval(address from, uint256 value, address tokenContract, bytes extraData);
 
    modifier onlyEmployee() {
-      require(employees[msg.sender]);
+      require(employees[employeesIds[msg.sender]].accountAddress != address(0));
       _;
    }
 
@@ -94,15 +92,15 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
    /// tokens used for the Smart Contract with their corresponding symbol and
    /// to set the prices for the ANT and ETH tokens.
    /// Cheaper than creating ERC20 instances only for the token symbol
-   /// @param tokenAddresses The addresses of the tokens. Maximum 3 tokens, USD, ANT and ETH
-   /// @param tokenSymbols The corresponding symbols of the tokens
-   function Payroll(address[3] _tokenAddresses, string[3] _tokenSymbols) {
-      require(tokenAddresses.length > 0);
-      require(tokenSymbols.length > 0);
+   /// @param _tokenAddresses The addresses of the tokens. Maximum 3 tokens, USD, ANT and ETH
+   /// @param _tokenSymbols The corresponding symbols of the tokens
+   function Payroll(address[3] _tokenAddresses, string[3] _tokenSymbols) public {
+      require(_tokenAddresses.length > 0);
+      require(_tokenAddresses.length > 0);
 
       // Save the values of symbol and address on the tokenSymbols mapping
       for(uint i = 0; i < 3; i++) {
-         string symbol = _tokenSymbols[i];
+         string memory symbol = _tokenSymbols[i];
          address tokenAddress = _tokenAddresses[i];
 
          tokenSymbols[symbol] = tokenAddress;
@@ -123,7 +121,7 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
       address accountAddress,
       address[] allowedTokens,
       uint256 initialYearlyUSDSalary
-   ) onlyOwner {
+   ) public onlyOwner {
       require(accountAddress != address(0));
       require(initialYearlyUSDSalary > 0);
 
@@ -144,7 +142,7 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
    /// @notice To set the salary of a specified employee
    /// @param employeeId The ID of that employee to modify his salary
    /// @param yearlyUSDSalary The new yearly salary that will be used
-   function setEmployeeSalary(uint256 employeeId, uint256 yearlyUSDSalary) onlyOwner {
+   function setEmployeeSalary(uint256 employeeId, uint256 yearlyUSDSalary) public onlyOwner {
       require(employeeId > 0);
       require(yearlyUSDSalary > 0);
 
@@ -158,7 +156,7 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
 
    /// @notice Removes an employee from the list-mapping of employees
    /// @param employeeId The ID of the employee to delete
-   function removeEmployee(uint256 employeeId) onlyOwner {
+   function removeEmployee(uint256 employeeId) public onlyOwner {
       require(employeeId > 0);
 
       delete employees[employeeId];
@@ -170,7 +168,12 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
    /// @param _value The amount of tokens approved to use
    /// @param _tokenContract The address of the token that executed the approval
    /// @param _extraData Extra data that could be interesting for the user
-   function receiveApproval(address _from, uint256 _value, address _tokenContract, bytes _extraData) {
+   function receiveApproval(
+      address _from,
+      uint256 _value,
+      address _tokenContract,
+      bytes _extraData
+   ) public {
       LogApproval(_from, _value, _tokenContract, _extraData);
    }
 
@@ -178,10 +181,10 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
    /// employees. Only used to store the ether sent, that's why it's empty.
    /// The balance of this contract will also be used to pay the Oraclize for his
    /// services. It costs about 5 cents each query to update the token prices
-   function addFunds() payable {}
+   function addFunds() public payable {}
 
    /// @notice To extract the ether from the contract in emergency cases
-   function scapeHatch() onlyOwner {
+   function scapeHatch() public onlyOwner {
       msg.sender.transfer(this.balance);
    }
 
@@ -198,7 +201,7 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
 
    /// @notice To get how many employees are available
    /// @return uint256 The number of employees
-   function getEmployeeCount() constant returns(uint256) {
+   function getEmployeeCount() public constant returns(uint256) {
       return employeeIdCounter;
    }
 
@@ -207,7 +210,7 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
    /// @return employee The address of the employee
    /// @return allowedTokens The array of tokens that he's allowed to use
    /// @return yearlySalary How much that employee gets paid each year in USD
-   function getEmployee(uint256 employeeId) constant returns(
+   function getEmployee(uint256 employeeId) public constant returns(
       address employee,
       address[] allowedTokens,
       uint256 yearlySalary
@@ -223,13 +226,13 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
 
    /// @notice Returns how much USD is spent each month in salaries
    /// @return uint256 The number of USD spent
-   function calculatePayrollBurnrate() constant returns(uint256) {
+   function calculatePayrollBurnrate() public constant returns(uint256) {
       return totalMonthlySalaries;
    }
 
    /// @notice Returns how many days until the contract runs out of funds
    /// @return uint256 The number of days left
-   function calculatePayrollRunway() constant returns(uint256) {
+   function calculatePayrollRunway() public constant returns(uint256) {
       uint256 paymentPerDay = totalMonthlySalaries.div(30);
 
       return this.balance.div(paymentPerDay);
@@ -239,14 +242,14 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
    /// of this employee. Only callable once every 6 months by the employee
    /// @param _tokens The array of tokens used to pay the salary of this employee
    /// @param distribution The percentages for each token up to 100 which is 100%
-   function determineAllocation(address[] _tokens, uint256[] distribution) onlyEmployee {
+   function determineAllocation(address[] _tokens, uint256[] distribution) public onlyEmployee {
       require(_tokens.length > 0);
       require(distribution.length > 0);
 
-      // Check if 6 months have passed to
-      require(block.timestamp >= employeesIds[accountAddress].lastTimeCalled.add(90 days));
+      // Check if 6 months have passed
+      require(block.timestamp >= employees[employeesIds[msg.sender]].lastTimeCalled.add(90 days));
 
-      uint256 employeeId = employeesIds[accountAddress];
+      uint256 employeeId = employeesIds[msg.sender];
       employees[employeeId].lastTimeCalled = block.timestamp;
       employees[employeeId].allowedTokens = _tokens;
       employees[employeeId].tokenDistribution = distribution;
@@ -255,13 +258,13 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
    /// @notice To distribute the payment of the employee with the corresponding
    /// token allocationn. I don't like the fact that the array of tokens is a
    /// variable sized array because that could bring gas and stack limit problems
-   function payday() onlyEmployee {
+   function payday() public onlyEmployee {
       require(block.timestamp >= employees[employeesIds[msg.sender]].lastTimePayed.add(30 days));
 
       uint256 employeeId = employeesIds[msg.sender];
-      address[] _tokens = employees[employeeId].allowedTokens;
-      uint256[] distributions = employees[employeeId].tokenDistribution;
-      uint256 monthlySalary = employees[employeeId].yearlyUSDSalary.div(12);
+      address[] memory _tokens = employees[employeeId].allowedTokens;
+      uint256[] memory distributions = employees[employeeId].tokenDistribution;
+      uint256 monthlySalary = employees[employeeId].yearlySalary.div(12);
 
       // Distribute the payment depending on the allocation for each token
       for(uint i = 0; i < _tokens.length; i++) {
@@ -301,10 +304,11 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
       bytes32 _queryId,
       string _result,
       bytes _proof
-   ) oraclize_randomDS_proofVerify(_queryId, _result, _proof) {
+   ) public oraclize_randomDS_proofVerify(_queryId, _result, _proof) {
       require(msg.sender == oraclize_cbAddress());
 
-      uint256 price = uint(_result);
+      // Convert the result to uint
+      uint256 price = uint256(keccak256(_result));
 
       // If the price is less than 100, then update the price of ANT. It's not a
       // perfect mechanism to specify the price of each token but it works
