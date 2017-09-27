@@ -11,6 +11,7 @@ contract PayrollInterface {
 
   /* OWNER ONLY */
   function addEmployee(address accountAddress, address[] allowedTokens, uint256 initialYearlyUSDSalary);
+
   function setEmployeeSalary(uint256 employeeId, uint256 yearlyUSDSalary);
   function removeEmployee(uint256 employeeId);
 
@@ -47,13 +48,6 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
       uint256 lastTimePayed;
    }
 
-   // Each token data
-   struct Token {
-      string symbol;
-      uint256 priceUsd;
-      uint256 lastUpdated; // Timestamp
-   }
-
    // To locate each employee with his ID => Employee data
    mapping(uint256 => Employee) employees;
 
@@ -61,8 +55,11 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
    // of the data
    mapping(address => uint256) employeesIds;
 
-   // To define the price of each token
-   mapping(address => Token) tokens;
+   // Address of the token => price in USD
+   mapping(address => uint256) tokens;
+
+   // The symbol string of the token => address of the token
+   mapping(string => address) tokenSymbols;
 
    // To set the ID of each employee
    uint256 employeeIdCounter = 0;
@@ -70,12 +67,10 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
    // How much total USD is spent monthly in salaries
    uint256 totalMonthlySalaries;
 
-   // The address that will store the ether
-   address etherAddress;
-
-   // The address of the ANT token
-   address aragonToken;
+   // Price per ANT token in USD
    uint256 antPrice;
+
+   // Price per ETH in USD. There isn't a usdPrice uint because it's always 1
    uint256 ethPrice;
 
    // To notify users about approvals
@@ -85,12 +80,31 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
       require(employees[msg.sender])
    }
 
-   /// @notice Constructor only used to set the proof of oraclize
-   function Payroll() {
+   /// @notice Constructor used to set the proof of oraclize, establish the
+   /// tokens used for the Smart Contract with their corresponding symbol and
+   /// to set the prices for the ANT and ETH tokens
+   /// @param tokenAddresses The addresses of the tokens. Maximum 3 tokens, USD, ANT and ETH
+   /// @param tokenSymbols The corresponding symbols of the tokens
+   function Payroll(address[3] _tokenAddresses, string[3] _tokenSymbols) {
+      require(tokenAddresses.length > 0);
+      require(tokenSymbols.length > 0);
+
+      // Save the values of symbol and address on the tokenSymbols mapping
+      for(uint i = 0; i < 3; i++) {
+         string symbol = _tokenSymbols[i];
+         address tokenAddress = _tokenAddresses[i];
+
+         tokenSymbols[symbol] = tokenAddress;
+      }
+
       oraclize_setProof(proofType_Ledger);
+
+      // Query the prices to get the ANT and ETH values
+      oraclize_query(1 days, "URL", "json(https://coinmarketcap-nexuist.rhcloud.com/api/eth).price.usd");
+      oraclize_query(1.1 days, "URL", "json(https://coinmarketcap-nexuist.rhcloud.com/api/ant).price.usd");
    }
 
-   /// @notice To add a new employee to the business
+   /// @notice To add a new employee to the business and set his profile data
    /// @param accountAddress Where the funds paid will be stored
    /// @param allowedTokens The array used to store what tokens he's allowed to use
    /// @param initialYearlyUSDSalary The initial yearly salary of that employee in USD
@@ -223,8 +237,7 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
    }
 
    /// @notice To distribute the payment of the employee with the corresponding
-   /// token allocation. You must call it 2 times: first to update the price of
-   /// the tokens and another one to get paid. Only payable once a month
+   /// token allocationn
    function payday() onlyEmployee {
       require(block.timestamp >= employeesIds[accountAddress].lastTimePayed.add(30 days));
 
@@ -235,12 +248,6 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
 
       // Distribute the payment depending on the allocation for each token
       for(uint i = 0; i < _tokens.length; i++) {
-
-         // Distribute the tokens after updating the price. Limited to 60 mins
-         if(_tokens[i].lastUpdated.add(60 minutes) >= block.timestamp) {
-
-         }
-
          uint256 paymentToken = distributions[i].div(100).mul(monthlySalary);
          _tokens[i]
       }
@@ -273,6 +280,6 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
       oraclize_query(1 days, "URL", "json(https://coinmarketcap-nexuist.rhcloud.com/api/eth).price.usd");
 
       // ANT price query
-      oraclize_query(1 days, "URL", "json(https://coinmarketcap-nexuist.rhcloud.com/api/ant).price.usd");
+      oraclize_query(1.1 days, "URL", "json(https://coinmarketcap-nexuist.rhcloud.com/api/ant).price.usd");
    }
 }
