@@ -89,9 +89,10 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
       require(employees[msg.sender])
    }
 
-   /// @notice Constructor used to set the proof of oraclize, establish the
+   /// @notice Constructor used to set the proof of oraclize, relationate the
    /// tokens used for the Smart Contract with their corresponding symbol and
-   /// to set the prices for the ANT and ETH tokens
+   /// to set the prices for the ANT and ETH tokens.
+   /// Cheaper than creating ERC20 instances only for the token symbol
    /// @param tokenAddresses The addresses of the tokens. Maximum 3 tokens, USD, ANT and ETH
    /// @param tokenSymbols The corresponding symbols of the tokens
    function Payroll(address[3] _tokenAddresses, string[3] _tokenSymbols) {
@@ -113,7 +114,7 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
       oraclize_query(1.1 days, "URL", "json(https://coinmarketcap-nexuist.rhcloud.com/api/ant).price.usd");
    }
 
-   /// @notice To add a new employee to the business and set his profile data
+   /// @notice Add a new employee to the business and set his profile data
    /// @param accountAddress Where the funds paid will be stored
    /// @param allowedTokens The array used to store what tokens he's allowed to use
    /// @param initialYearlyUSDSalary The initial yearly salary of that employee in USD
@@ -121,9 +122,12 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
       address accountAddress,
       address[] allowedTokens,
       uint256 initialYearlyUSDSalary
-   ) onlyOwner{
+   ) onlyOwner {
       require(accountAddress != address(0));
       require(initialYearlyUSDSalary > 0);
+
+      // At least 1 token must be allowed to be able to pay
+      require(allowedTokens.length > 0);
 
       employeeIdCounter = employeeIdCounter.add(1);
       employees[employeeIdCounter].accountAddress = accountAddress;
@@ -137,8 +141,8 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
    }
 
    /// @notice To set the salary of a specified employee
-   /// @param employeeId The ID of that employee used to modify his salary
-   /// @param yearlyUSDSalary The new yearly salary that will be used for him
+   /// @param employeeId The ID of that employee to modify his salary
+   /// @param yearlyUSDSalary The new yearly salary that will be used
    function setEmployeeSalary(uint256 employeeId, uint256 yearlyUSDSalary) onlyOwner {
       require(employeeId > 0);
       require(yearlyUSDSalary > 0);
@@ -147,16 +151,14 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
       require(employees[employeeId].accountAddress != address(0));
 
       uint256 salaryBefore = employees[employeeId].yearlySalary;
-
       employees[employeeId].yearlySalary = yearlyUSDSalary;
       updateTotalMonthlySalaries(salaryBefore, yearlyUSDSalary);
    }
 
-   /// @notice Removes an exployee from the list, mapping of employees
+   /// @notice Removes an employee from the list-mapping of employees
    /// @param employeeId The ID of the employee to delete
    function removeEmployee(uint256 employeeId) onlyOwner {
       require(employeeId > 0);
-      require(employees[employeeId].accountAddress != address(0));
 
       delete employees[employeeId];
    }
@@ -171,13 +173,13 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
       LogApproval(_from, _value, _tokenContract, _extraData);
    }
 
-   /// @notice To add funds to the contract in order to use them later to pay the
+   /// @notice To add Ether funds to the contract in order to use them later to pay the
    /// employees. Only used to store the ether sent, that's why it's empty.
    /// The balance of this contract will also be used to pay the Oraclize for his
-   /// services. It costs about 5 cents each query
+   /// services. It costs about 5 cents each query to update the token prices
    function addFunds() payable {}
 
-   /// @notice To extract the ether from the contract
+   /// @notice To extract the ether from the contract in emergency cases
    function scapeHatch() onlyOwner {
       msg.sender.transfer(this.balance);
    }
@@ -202,13 +204,15 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
    /// @notice To get the employee data given his ID
    /// @param employeeId The ID of that employee
    /// @return employee The address of the employee
-   /// @return allowedTokens The tokens that he's allowed to use
+   /// @return allowedTokens The array of tokens that he's allowed to use
    /// @return yearlySalary How much that employee gets paid each year in USD
    function getEmployee(uint256 employeeId) constant returns(
       address employee,
       address[] allowedTokens,
       uint256 yearlySalary
    ) {
+
+      // Must be an existing employee
       require(employeeId > 0 && employeeId <= employeeIdCounter);
 
       employee = employees[employeeId].accountAddress;
@@ -248,11 +252,12 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
    }
 
    /// @notice To distribute the payment of the employee with the corresponding
-   /// token allocationn
+   /// token allocationn. I don't like the fact that the array of tokens is a
+   /// variable sized array because that could bring gas and stack limit problems
    function payday() onlyEmployee {
-      require(block.timestamp >= employeesIds[accountAddress].lastTimePayed.add(30 days));
+      require(block.timestamp >= employees[employeesIds[msg.sender]].lastTimePayed.add(30 days));
 
-      uint256 employeeId = employeesIds[accountAddress];
+      uint256 employeeId = employeesIds[msg.sender];
       address[] _tokens = employees[employeeId].allowedTokens;
       uint256[] distributions = employees[employeeId].tokenDistribution;
       uint256 monthlySalary = employees[employeeId].yearlyUSDSalary.div(12);
@@ -271,23 +276,26 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
          // If the token being calculated is ether
          if(tokenSymbols['ETH'] == _tokens[i]) {
 
-            // Transfer the corresponding amount of ETH with .tranfer()
+            // Transfer the corresponding amount of ETH with .transfer()
             msg.sender.transfer(amountTokens);
          } else {
             ERC20 token = ERC20(_tokens[i]);
 
-            // We can use transfer from because the owner added funds with approveAndCall()
+            // We can use transferFrom because the owner added funds with approveAndCall()
             token.transferFrom(this, msg.sender, amountTokens);
          }
       }
    }
 
-   /// @notice Callback function that gets called by oraclize when the price of
+   /// @notice Callback function that gets called by Oraclize.it when the price of
    /// the tokens gets updated. It constantly updates the price of Ether and the
-   /// ANT token
-   /// @param _queryId The query id that was generated to proofVerify
-   /// @param _result String that contains the number generated
-   /// @param _proof A string with a proof code to verify the authenticity of the number generation
+   /// ANT token each day. If you want to stop it, extract all the ether from this
+   /// contract and Oraclize won't execute without his fee
+   /// @param _queryId The query id that was generated used to verify the proof
+   /// @param _result String that contains the price in USD obtained from the
+   /// API of coinmarketcap
+   /// @param _proof A string with a proof code to verify the authenticity of the
+   /// query executed
    function __callback(
       bytes32 _queryId,
       string _result,
