@@ -275,15 +275,4 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
       // ANT price query
       oraclize_query(1 days, "URL", "json(https://coinmarketcap-nexuist.rhcloud.com/api/ant).price.usd");
    }
-
-   /// @notice To set the rate of each token in order to make payments
-   /// @param token The token to set the rate
-   /// @param usdExchangeRate How much USD a token is worth
-   function setExchangeRate(address tokenAddress, uint256 usdExchangeRate) internal {
-      require(tokenAddress != address(0));
-      require(usdExchangeRate != 0);
-
-      tokens[tokenAddress].priceUsd = usdExchangeRate;
-      tokens[tokenAddress].lastUpdated = block.timestamp;
-   }
 }
