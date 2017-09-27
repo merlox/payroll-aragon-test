@@ -1,0 +1,22 @@
+{
+  "name": "merunas-payroll",
+  "version": "1.0.0",
+  "description": "This is the test Solidity contract to work in Aragon.one",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://merlox:Merunas@1@github.com/merlox/payroll-aragon-test.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/merlox/payroll-aragon-test/issues"
+  },
+  "homepage": "https://github.com/merlox/payroll-aragon-test#readme",
+  "dependencies": {
+    "zeppelin-solidity": "1.3.0"
+  }
+}

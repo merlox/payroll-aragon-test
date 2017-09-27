@@ -1,8 +1,18 @@
+
+// It's a fixed version without the caret ^ to be certain that there aren't
+// breaking changes with new compiler versions
 pragma solidity 0.4.15;
 
-// Using the Open Zeppelin's tested code
+// I need Ownable to limt certain functions for the owner exclusively
 import 'github.com/OpenZeppelin/zeppelin-solidity/contracts/ownership/Ownable.sol';
+
+// The ERC20 interface to make token transfers when paying the salary of the employees
+import 'github.com/OpenZeppelin/zeppelin-solidity/contracts/token/ERC20.sol';
+
+// Famous library to make secure calculus
 import 'github.com/OpenZeppelin/zeppelin-solidity/contracts/math/SafeMath.sol';
+
+// The oracle that I'm going to use
 import "github.com/oraclize/ethereum-api/oraclizeAPI.sol";
 
 // For the sake of simplicity lets asume USD is a ERC20 token
@@ -11,7 +21,6 @@ contract PayrollInterface {
 
   /* OWNER ONLY */
   function addEmployee(address accountAddress, address[] allowedTokens, uint256 initialYearlyUSDSalary);
-
   function setEmployeeSalary(uint256 employeeId, uint256 yearlyUSDSalary);
   function removeEmployee(uint256 employeeId);
 
@@ -56,7 +65,7 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
    mapping(address => uint256) employeesIds;
 
    // Address of the token => price in USD
-   mapping(address => uint256) tokens;
+   mapping(address => uint256) tokensPrices;
 
    // The symbol string of the token => address of the token
    mapping(string => address) tokenSymbols;
@@ -163,7 +172,9 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
    }
 
    /// @notice To add funds to the contract in order to use them later to pay the
-   /// employees. Only used to store the ether sent
+   /// employees. Only used to store the ether sent, that's why it's empty.
+   /// The balance of this contract will also be used to pay the Oraclize for his
+   /// services. It costs about 5 cents each query
    function addFunds() payable {}
 
    /// @notice To extract the ether from the contract
@@ -248,8 +259,26 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
 
       // Distribute the payment depending on the allocation for each token
       for(uint i = 0; i < _tokens.length; i++) {
+
+         // How much USD corresponds to that token allocation. For instance,
+         // a token allocation of 40% will be 0.4 * monthlySalary in USD
          uint256 paymentToken = distributions[i].div(100).mul(monthlySalary);
-         _tokens[i]
+
+         // Using the price of the token we can calculate how many tokens he'll
+         // receive while setting the decimals of the token to 18
+         uint256 amountTokens = paymentToken.div(tokensPrices[_tokens[i]]).mul(1e18);
+
+         // If the token being calculated is ether
+         if(tokenSymbols['ETH'] == _tokens[i]) {
+
+            // Transfer the corresponding amount of ETH with .tranfer()
+            msg.sender.transfer(amountTokens);
+         } else {
+            ERC20 token = ERC20(_tokens[i]);
+
+            // We can use transfer from because the owner added funds with approveAndCall()
+            token.transferFrom(this, msg.sender, amountTokens);
+         }
       }
    }
 
@@ -271,9 +300,9 @@ contract Payroll is PayrollInterface, Ownable, usingOraclize{
       // If the price is less than 100, then update the price of ANT. It's not a
       // perfect mechanism to specify the price of each token but it works
       if(price < 100)
-         antPrice = price;
+         tokensPrices[tokenSymbols['ANT']] = price;
       else
-         ethPrice = price;
+         tokensPrices[tokenSymbols['ETH']] = price;
 
       // Renew the prices for each token using the Oraclize API each day
       // ETH price query
